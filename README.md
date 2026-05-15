@@ -19,6 +19,7 @@ This repository contains the core recommendation system powering the "For You" f
   - [Scoring and Ranking](#scoring-and-ranking)
   - [Filtering](#filtering)
 - [Key Design Decisions](#key-design-decisions)
+- [Deployment security](#deployment-security)
 - [License](#license)
 
 ---
@@ -338,6 +339,28 @@ The `candidate-pipeline` crate provides a flexible framework for building recomm
 - Separation of pipeline execution and monitoring from business logic
 - Parallel execution of independent stages and graceful error handling
 - Easy addition of new sources, hydrations, filters, and scorers
+
+---
+
+## Deployment security
+
+**Home Mixer — debug scored posts RPC:** `get_debug_scored_posts` is **disabled by default**. It returns full pipeline state and historically accepted caller-supplied feature-switch overrides.
+
+| Variable | Effect |
+|---------|--------|
+| `HOME_MIXER_ENABLE_DEBUG_SCORED_POSTS` | Must be `1`, `true`, `yes`, or `on` to allow the debug RPC at all. |
+| `HOME_MIXER_ALLOW_DEBUG_FS_OVERRIDES` | When set similarly, applies `feature_switch_overrides` from the request; otherwise overrides are dropped and a warning is logged. |
+
+Keep this RPC on internal-only networks even when enabled.
+
+**Thunder — Kafka:** Do not bake broker addresses or topics into source. Configure:
+
+| Variable | Purpose |
+|---------|---------|
+| `THUNDER_KAFKA_SASL_PASSWORD` | Consumer SASL password (or use the Thunder CLI equivalent). |
+| `THUNDER_KAFKA_PRODUCER_SASL_PASSWORD` | Producer SASL password when it differs from the consumer. |
+| `THUNDER_KAFKA_TWEET_EVENTS_TOPIC` / `THUNDER_KAFKA_TWEET_EVENTS_DEST` | Tweet-events consumer (non-serving mode). |
+| `THUNDER_KAFKA_IN_NETWORK_EVENTS_TOPIC` / `THUNDER_KAFKA_IN_NETWORK_EVENTS_DEST` | In-network producer sink and serving-mode consumer topic. |
 
 ---
 

@@ -12,11 +12,16 @@ use crate::{
     },
 };
 
-const TWEET_EVENT_TOPIC: &str = "";
-const TWEET_EVENT_DEST: &str = "";
+// Kafka cluster DNS, topics, and SASL passwords must not be baked into the binary.
+// Configure via environment (or CLI where `Args` provides fallbacks).
 
-const IN_NETWORK_EVENTS_DEST: &str = "";
-const IN_NETWORK_EVENTS_TOPIC: &str = "";
+const ENV_KAFKA_SASL_PASSWORD: &str = "THUNDER_KAFKA_SASL_PASSWORD";
+const ENV_KAFKA_PRODUCER_SASL_PASSWORD: &str = "THUNDER_KAFKA_PRODUCER_SASL_PASSWORD";
+
+const ENV_TWEET_EVENTS_TOPIC: &str = "THUNDER_KAFKA_TWEET_EVENTS_TOPIC";
+const ENV_TWEET_EVENTS_DEST: &str = "THUNDER_KAFKA_TWEET_EVENTS_DEST";
+const ENV_IN_NETWORK_TOPIC: &str = "THUNDER_KAFKA_IN_NETWORK_EVENTS_TOPIC";
+const ENV_IN_NETWORK_DEST: &str = "THUNDER_KAFKA_IN_NETWORK_EVENTS_DEST";
 
 pub async fn start_kafka(
     args: &args::Args,
@@ -24,13 +29,23 @@ pub async fn start_kafka(
     user: &str,
     tx: tokio::sync::mpsc::Sender<i64>,
 ) -> Result<()> {
-    let sasl_password = std::env::var("")
+    let sasl_password = std::env::var(ENV_KAFKA_SASL_PASSWORD)
         .ok()
-        .or(args.sasl_password.clone())?;
+        .or_else(|| args.sasl_password.clone())
+        .with_context(|| {
+            format!(
+                "Kafka consumer SASL password: set {ENV_KAFKA_SASL_PASSWORD} or pass the equivalent CLI flag"
+            )
+        })?;
 
-    let producer_sasl_password = std::env::var("")
+    let producer_sasl_password = std::env::var(ENV_KAFKA_PRODUCER_SASL_PASSWORD)
         .ok()
-        .or(args.producer_sasl_password.clone());
+        .or_else(|| args.producer_sasl_password.clone());
+
+    let tweet_events_topic = std::env::var(ENV_TWEET_EVENTS_TOPIC).unwrap_or_default();
+    let tweet_events_dest = std::env::var(ENV_TWEET_EVENTS_DEST).unwrap_or_default();
+    let in_network_topic = std::env::var(ENV_IN_NETWORK_TOPIC).unwrap_or_default();
+    let in_network_dest = std::env::var(ENV_IN_NETWORK_DEST).unwrap_or_default();
 
     if args.is_serving {
         let unique_id = uuid::Uuid::new_v4().to_string();
@@ -38,7 +53,7 @@ pub async fn start_kafka(
         let v2_tweet_events_consumer_config = KafkaConsumerConfig {
             base_config: KafkaConfig {
                 dest: args.in_network_events_consumer_dest.clone(),
-                topic: IN_NETWORK_EVENTS_TOPIC.to_string(),
+                topic: in_network_topic.clone(),
                 wily_config: Some(WilyConfig::default()),
                 ssl: Some(SslConfig {
                     security_protocol: args.security_protocol.clone(),
@@ -71,8 +86,8 @@ pub async fn start_kafka(
         // Create Kafka consumer config
         let tweet_events_consumer_config = KafkaConsumerConfig {
             base_config: KafkaConfig {
-                dest: TWEET_EVENT_DEST.to_string(),
-                topic: TWEET_EVENT_TOPIC.to_string(),
+                dest: tweet_events_dest.clone(),
+                topic: tweet_events_topic.clone(),
                 wily_config: Some(WilyConfig::default()),
                 ssl: Some(SslConfig {
                     security_protocol: args.security_protocol.clone(),
@@ -94,8 +109,8 @@ pub async fn start_kafka(
 
         let producer_config = KafkaProducerConfig {
             base_config: KafkaConfig {
-                dest: IN_NETWORK_EVENTS_DEST.to_string(),
-                topic: IN_NETWORK_EVENTS_TOPIC.to_string(),
+                dest: in_network_dest.clone(),
+                topic: in_network_topic.clone(),
                 wily_config: Some(WilyConfig::default()),
                 ssl: Some(SslConfig {
                     security_protocol: args.security_protocol.clone(),

@@ -32,6 +32,18 @@ use xai_x_rpc::wily_lookup_service::ShardCoordinate;
 
 const VIEWER_ROLES_TIMEOUT_MS: u64 = 200;
 
+/// When unset or `0`/`false`, `get_debug_scored_posts` rejects requests. Enable only on trusted networks.
+fn env_flag_enabled(key: &str) -> bool {
+    std::env::var(key)
+        .map(|v| {
+            matches!(
+                v.to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
 pub struct RequestContext {
     pub b3_info: B3RequestInfo,
     pub query: ScoredPostsQuery,
@@ -238,11 +250,28 @@ impl pb::scored_posts_service_server::ScoredPostsService for ScoredPostsServer {
         &self,
         request: Request<pb::DebugScoredPostsQuery>,
     ) -> Result<Response<DebugScoredPostsResponse>, Status> {
+        if !env_flag_enabled("HOME_MIXER_ENABLE_DEBUG_SCORED_POSTS") {
+            return Err(Status::permission_denied(
+                "get_debug_scored_posts is disabled by default. Set HOME_MIXER_ENABLE_DEBUG_SCORED_POSTS=1 only for trusted internal debugging.",
+            ));
+        }
+
         let mut b3_info = extract_b3_info(request.metadata());
         b3_info.force_sample();
 
-        let debug_query = request.into_inner();
-        let fs_overrides = debug_query.feature_switch_overrides;
+        let mut debug_query = request.into_inner();
+        let fs_overrides = if env_flag_enabled("HOME_MIXER_ALLOW_DEBUG_FS_OVERRIDES") {
+            std::mem::take(&mut debug_query.feature_switch_overrides)
+        } else if !debug_query.feature_switch_overrides.is_empty() {
+            tracing::warn!(
+                override_count = debug_query.feature_switch_overrides.len(),
+                "dropping feature_switch_overrides (set HOME_MIXER_ALLOW_DEBUG_FS_OVERRIDES=1 to apply; keep debug RPC off the public internet)"
+            );
+            debug_query.feature_switch_overrides.clear();
+            HashMap::new()
+        } else {
+            HashMap::new()
+        };
         let proto_query = debug_query.query.unwrap_or_default();
 
         let ctx = self
